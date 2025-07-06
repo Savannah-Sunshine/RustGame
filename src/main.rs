@@ -1,20 +1,31 @@
+use core::num;
+
 use macroquad::prelude::*;
 use macroquad_platformer::*;
 
 // Size of the game grid
-const SQUARES: i16 = 16;
+const SQUARES: i16 = 8;
 type Point = (i16, i16);
+
+// const GREENGRASS: Color = Color::from_rgba(173,167,73,255);
+// const YELLOWGRASS: Color = Color::from_rgba(201,178,76,255);
+// const LIGHTDIRT: Color = Color::from_rgba(199,134,80,255);
+const DARKTILE: Color = Color::from_rgba(192, 190, 152, 255);
+const LIGHTTILE: Color = Color::from_rgba(214, 200, 163, 255);
+const HERO: Color = Color::from_rgba(211, 110, 103, 255);
+const ENEMY: Color = Color::from_rgba(151, 38, 61, 255);
 
 struct Character {
     head: Point,
     color: Color,
     dir: Point,
     collider: Actor,
+    speed: i32,
 }
 
 struct Obstacle {
     collider: Solid,
-    speed: f32,
+    speed: i32,
 }
 
 #[macroquad::main("MyGame")]
@@ -34,80 +45,150 @@ async fn main() {
 
     let mut player = Character {
         collider: world.add_actor(vec2(50.0, 80.0), 8, 8),
-        color: BLUE,
-        head: (0, 0),
+        color: HERO,
+        // random start position
+        head: (rand::gen_range(0, SQUARES), rand::gen_range(0, SQUARES)),
         dir: (1, 0),
+        speed: 1, // initial speed
     };
 
     let mut enemy = Character {
         collider: world.add_actor(vec2(100.0, 80.0), 8, 8),
-        color: DARKGREEN,
-        head: (1, 0),
+        color: ENEMY,
+        head: (rand::gen_range(0, SQUARES), rand::gen_range(0, SQUARES)),
         dir: (1, 0),
+        speed: 1, // initial speed
     };
 
     let mut game_over = false;
     let mut last_update = get_time();
     let mut is_player_turn = true;
 
+    let mut num_losses: f32 = 0.0;
+    let mut num_moves_on_turn= 0;
     let up = (0, -1);
     let down = (0, 1);
     let right = (1, 0);
     let left = (-1, 0);
+
+    // returns if move was successful
     fn update_character_position(
         character: &mut Character,
         dir: Point,
-        is_player_turn: &mut bool,
         last_update: &mut f64,
+        num_moves_on_turn: &mut i32, 
     ) {
         character.dir = dir;
+        // Check if the new position is within bounds
+        if character.head.0 + dir.0 < 0
+            || character.head.0 + dir.0 >= SQUARES
+            || character.head.1 + dir.1 < 0
+            || character.head.1 + dir.1 >= SQUARES
+        {
+            // If out of bounds
+            return;
+        }
+
         character.head.0 += dir.0;
         character.head.1 += dir.1;
-        *is_player_turn = !*is_player_turn;
         *last_update = get_time();
+        *num_moves_on_turn += 1;
     }
 
     loop {
         // Does movement
         if !game_over && is_player_turn {
             if is_key_down(KeyCode::Right) {
-                update_character_position(&mut player, right, &mut is_player_turn, &mut last_update);
+                update_character_position(&mut player,right,&mut last_update, &mut num_moves_on_turn);
             } else if is_key_down(KeyCode::Left) {
-                update_character_position(&mut player, left, &mut is_player_turn, &mut last_update);
+                update_character_position(&mut player, left, &mut last_update, &mut num_moves_on_turn);
             } else if is_key_down(KeyCode::Up) {
-                update_character_position(&mut player, up, &mut is_player_turn, &mut last_update);
+                update_character_position(&mut player, up, &mut last_update, &mut num_moves_on_turn);
             } else if is_key_down(KeyCode::Down) {
-                update_character_position(&mut player, down, &mut is_player_turn, &mut last_update);
+                update_character_position(&mut player, down, &mut last_update, &mut num_moves_on_turn);
             }
+            if num_moves_on_turn >= player.speed {
+                is_player_turn = false;
+                // Reset moves for next turn
+                num_moves_on_turn = 0;
+                // last_update = get_time();
+            }
+            
+
         } else if !game_over && !is_player_turn {
             // Enemy turn logic can be added here
             // For now, just switch back to player turn
 
             // pause 1 seconds before switching back to player turn
             if get_time() - last_update > 1.0 {
-                // Random AI: just move in a random direction
-                let directions = [up, down, left, right];
-                let random_index = rand::gen_range(0, directions.len());
-                let dir = directions[random_index];
-                update_character_position(&mut enemy, dir, &mut is_player_turn, &mut last_update);
+                // explode if player is next to enemy
+                if (enemy.head.0 - player.head.0).abs() <= 1 && (enemy.head.1 - player.head.1).abs() <= 1 {
+                    game_over = true;
+                    num_losses += 1.0;
+                    continue;
+                }
+
+                // if player is close, move towards player
+                if (enemy.head.0 - player.head.0).abs() <= 5 && (enemy.head.1 - player.head.1).abs() <= 5
+                {
+                    // Check if player is to the right
+                    if enemy.head.0 < player.head.0 {
+                        update_character_position(
+                            &mut enemy,
+                            right,
+                            &mut last_update,
+                            &mut num_moves_on_turn,
+                        );
+                    } else if enemy.head.0 > player.head.0 {
+                        update_character_position(
+                            &mut enemy,
+                            left,
+                            &mut last_update,
+                            &mut num_moves_on_turn,
+                        );
+                    } else if enemy.head.1 < player.head.1 {
+                        update_character_position(
+                            &mut enemy,
+                            down,
+                            &mut last_update,
+                            &mut num_moves_on_turn,
+                        );
+                    } else if enemy.head.1 > player.head.1 {
+                        update_character_position(
+                            &mut enemy,
+                            up,
+                            &mut last_update,
+                            &mut num_moves_on_turn,
+                        );
+                    }
+                } else {
+                    // Random AI: just move in a random direction
+                    let directions = [up, down, left, right];
+                    let random_index = rand::gen_range(0, directions.len());
+                    let dir = directions[random_index];
+                    update_character_position(
+                        &mut enemy,
+                        dir,
+                        &mut last_update,
+                        &mut num_moves_on_turn,
+                    );
+                }
+
+                if num_moves_on_turn >= enemy.speed {
+                    is_player_turn = true;
+                    // Reset moves for next turn
+                    num_moves_on_turn = 0;
+                    // last_update = get_time();
+                }
             }
-            // if is_key_down(KeyCode::Right) {
-            //     update_character_position(&mut enemy, right, &mut is_player_turn, &mut last_update);
-            // } else if is_key_down(KeyCode::Left) {
-            //     update_character_position(&mut enemy, left, &mut is_player_turn, &mut last_update);
-            // } else if is_key_down(KeyCode::Up) {
-            //     update_character_position(&mut enemy, up, &mut is_player_turn, &mut last_update);
-            // } else if is_key_down(KeyCode::Down) {
-            //     update_character_position(&mut enemy, down, &mut is_player_turn, &mut last_update);
-            // }
         }
 
         // Draws the game
         if !game_over {
             if is_player_turn {
-                clear_background(BLUE);
+                clear_background(HERO);
             } else {
-                clear_background(DARKGREEN);
+                clear_background(ENEMY);
             }
 
             let game_size = screen_width().min(screen_height());
@@ -115,7 +196,13 @@ async fn main() {
             let offset_y = (screen_height() - game_size) / 2. + 10.;
             let sq_size = (screen_height() - offset_y * 2.) / SQUARES as f32;
 
-            draw_rectangle(offset_x, offset_y, game_size - 20., game_size - 20., WHITE);
+            draw_rectangle(
+                offset_x,
+                offset_y,
+                game_size - 20.,
+                game_size - 20.,
+                LIGHTTILE,
+            );
 
             // draw horizontal lines
             for i in 1..SQUARES {
@@ -125,7 +212,7 @@ async fn main() {
                     screen_width() - offset_x,
                     offset_y + sq_size * i as f32,
                     2.,
-                    LIGHTGRAY,
+                    DARKTILE,
                 );
             }
 
@@ -137,7 +224,7 @@ async fn main() {
                     offset_x + sq_size * i as f32,
                     screen_height() - offset_y,
                     2.,
-                    LIGHTGRAY,
+                    DARKTILE,
                 );
             }
 
@@ -165,6 +252,7 @@ async fn main() {
                 player.color,
             );
 
+            // Draw enemy
             draw_rectangle(
                 offset_x + enemy.head.0 as f32 * sq_size,
                 offset_y + enemy.head.1 as f32 * sq_size,
@@ -172,15 +260,7 @@ async fn main() {
                 sq_size,
                 enemy.color,
             );
-
-            draw_text(
-                format!("SCORE: {is_player_turn}").as_str(),
-                10.,
-                20.,
-                20.,
-                WHITE,
-            );
-        } else {
+        } else { //game over screen
             clear_background(WHITE);
             let text = "Game Over. Press [enter] to play again.";
             let font_size = 30.;
@@ -195,14 +275,20 @@ async fn main() {
             );
 
             if is_key_down(KeyCode::Enter) {
+                println!("Restarting game... You've died {} times", num_losses);
+                // Desaturate the player color based on number of losses
+                let alpha = (1.0 - num_losses * 0.25).clamp(0.2, 1.0);
+                
                 player = Character {
-                    color: DARKGREEN,
-                    collider: world.add_actor(vec2(50.0, 80.0), 8, 8),
+                    color: player.color.with_alpha(alpha),
+                    collider: player.collider,
                     head: (0, 0),
                     dir: (1, 0),
+                    speed: (num_losses as i32 + 1).clamp(1, 3),
                 };
                 last_update = get_time();
                 game_over = false;
+                is_player_turn = true;
             }
         }
         next_frame().await

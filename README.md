@@ -1,0 +1,1 @@
+# Fun Rust Game project for funsies
